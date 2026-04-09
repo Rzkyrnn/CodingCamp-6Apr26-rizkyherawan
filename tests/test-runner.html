@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Dashboard — Property Tests</title>
+  <style>
+    body { font-family: monospace; padding: 1rem 2rem; background: #111; color: #eee; }
+    h1 { color: #7cf; margin-bottom: 0.5rem; }
+    h2 { color: #adf; margin: 1.5rem 0 0.5rem; font-size: 1rem; }
+    #results { list-style: none; padding: 0; }
+    #results li { padding: 0.3rem 0.5rem; margin: 0.2rem 0; border-radius: 4px; }
+    .pass { background: #1a3a1a; color: #6f6; }
+    .fail { background: #3a1a1a; color: #f66; }
+    .info { background: #1a2a3a; color: #8cf; }
+    #summary { margin-top: 1rem; font-size: 1.1rem; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Personal Dashboard — Property-Based Tests</h1>
+  <p>Properties 5–11 (TodoList &amp; QuickLinks)</p>
+  <ul id="results"></ul>
+  <div id="summary"></div>
+
+  <script type="module">
+    import * as fc from 'https://cdn.jsdelivr.net/npm/fast-check/+esm';
+
+    // ── Minimal in-memory Storage mock ──────────────────────────────────────
+    const _store = {};
+    const Storage = {
+      get(key) {
+        try {
+          const raw = _store[key];
+          return raw === undefined ? null : JSON.parse(raw);
+        } catch { return null; }
+      },
+      set(key, value) {
+        try { _store[key] = JSON.stringify(value); } catch {}
+      },
+      clear() { for (const k in _store) delete _store[k]; }
+    };
+
+    // ── Minimal DOM stubs so render() / _rerenderItem() don't throw ─────────
+    const _noopEl = new Proxy({}, {
+      get(_, prop) {
+        if (prop === 'appendChild' || prop === 'replaceChild' || prop === 'remove') return () => {};
+        if (prop === 'querySelector') return () => null;
+        if (prop === 'querySelectorAll') return () => [];
+        if (prop === 'classList') return { add() {}, remove() {}, contains() { return false; } };
+        if (prop === 'dataset') return {};
+        if (prop === 'addEventListener') return () => {};
+        if (prop === 'innerHTML') return '';
+        return undefined;
+      },
+      set() { return true; }
+    });
+    if (typeof document === 'undefined') {
+      globalThis.document = { getElementById: () => _noopEl, createElement: () => _noopEl };
+    } else {
+      // Patch getElementById to return a no-op element for IDs the test page doesn't have
+      const _origGetById = document.getElementById.bind(document);
+      document.getElementById = (id) => _origGetById(id) || _noopEl;
+    }
+
+    // ── Inline TodoList (pure logic only, uses mock Storage) ────────────────
+    const TodoList = {
+      _tasks: [],
+      save() { Storage.set('pd_tasks', this._tasks); },
+      render() {},   // no-op — DOM not needed for property tests
+      _rerenderItem() {},
+      add(label) {
+        const trimmed = (label || '').trim();
+        if (!trimmed) return;
+        const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : Date.now().toString() + Math.random();
+        this._tasks.push({ id, label: trimmed, completed: false });
+        this.save();
+      },
+      toggle(id) {
+        const task = this._tasks.find(t => t.id === id);
+        if (!task) return;
+        task.completed = !task.completed;
+        this.save();
+      },
+      edit(id, label) {
+        const trimmed = (label || '').trim();
+        const task = this._tasks.find(t => t.id === id);
+        if (!task || !trimmed) return;
+        task.label = trimmed;
+        this.save();
+      },
+      delete(id) {
+        this._tasks = this._tasks.filter(t => t.id !== id);
+        this.save();
+      },
+      reset() {
+        this._tasks = [];
+        Storage.clear();
+      }
+    };
+
+    // ── Inline QuickLinks (pure logic only, uses mock Storage) ──────────────
+    const QuickLinks = {
+      _links: [],
+      save() { Storage.set('pd_links', this._links); },
+      render() {},
+      add(label, url) {
+        const trimLabel = (label || '').trim();
+        const trimUrl   = (url   || '').trim();
+        if (!trimLabel || !trimUrl) return;
+        try { new URL(trimUrl); } catch { return; }
+        const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : Date.now().toString() + Math.random();
+        this._links.push({ id, label: trimLabel, url: trimUrl });
+        this.save();
+      },
+      delete(id) {
+        this._links = this._links.filter(l => l.id !== id);
+        this.save();
+      },
+      reset() {
+        this._links = [];
+        Storage.clear();
+      }
+    };
+
+    // ── Test harness ─────────────────────────────────────────────────────────
+    const results = document.getElementById('results');
+    let passed = 0, failed = 0;
+
+    function log(name, ok, detail = '') {
+      const li = document.createElement('li');
+      li.className = ok ? 'pass' : 'fail';
+      li.textContent = (ok ? '✓ PASS' : '✗ FAIL') + '  ' + name + (detail ? ' — ' + detail : '');
+      results.appendChild(li);
+      console[ok ? 'log' : 'error']((ok ? '[PASS]' : '[FAIL]'), name, detail);
+      ok ? passed++ : failed++;
+    }
+
+    async function runProperty(name, prop) {
+      try {
+        await fc.assert(prop, { numRuns: 100 });
+        log(name, true);
+      } catch (e) {
+        log(name, false, String(e).split('\n')[0]);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 5 — Task addition round-trip
+    // Feature: personal-dashboard, Property 5: Task addition round-trip
+    // Validates: Requirements 3.1, 3.9
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 5: Task addition round-trip',
+      fc.property(
+        fc.string({ minLength: 1 }).filter(s => s.trim().length > 0),
+        (label) => {
+          TodoList.reset();
+          const before = TodoList._tasks.length;
+          TodoList.add(label);
+          const after = TodoList._tasks.length;
+          const stored = Storage.get('pd_tasks');
+          const inStorage = Array.isArray(stored) && stored.some(t => t.label === label.trim());
+          return after === before + 1 && inStorage;
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 6 — Empty task label rejection
+    // Feature: personal-dashboard, Property 6: Empty task label rejection
+    // Validates: Requirements 3.2
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 6: Empty task label rejection',
+      fc.property(
+        fc.stringOf(fc.constantFrom(' ', '\t', '\n')),
+        (label) => {
+          TodoList.reset();
+          const before = TodoList._tasks.length;
+          TodoList.add(label);
+          return TodoList._tasks.length === before;
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 7 — Task toggle is an involution
+    // Feature: personal-dashboard, Property 7: Task toggle is an involution
+    // Validates: Requirements 3.6, 3.7
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 7: Task toggle is an involution',
+      fc.property(
+        fc.record({
+          id: fc.uuidV4(),
+          label: fc.string({ minLength: 1 }),
+          completed: fc.boolean()
+        }),
+        (task) => {
+          TodoList.reset();
+          TodoList._tasks = [{ ...task }];
+          const original = task.completed;
+          TodoList.toggle(task.id);
+          TodoList.toggle(task.id);
+          return TodoList._tasks[0].completed === original;
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 8 — Task edit preserves identity
+    // Feature: personal-dashboard, Property 8: Task edit preserves identity
+    // Validates: Requirements 3.4
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 8: Task edit preserves identity',
+      fc.property(
+        fc.record({
+          id: fc.uuidV4(),
+          label: fc.string({ minLength: 1 }),
+          completed: fc.boolean()
+        }),
+        fc.string({ minLength: 1 }).filter(s => s.trim().length > 0),
+        (task, newLabel) => {
+          TodoList.reset();
+          TodoList._tasks = [{ ...task }];
+          TodoList.edit(task.id, newLabel);
+          const edited = TodoList._tasks[0];
+          return (
+            edited.label === newLabel.trim() &&
+            edited.id === task.id &&
+            edited.completed === task.completed
+          );
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 9 — localStorage persistence round-trip
+    // Feature: personal-dashboard, Property 9: localStorage persistence round-trip
+    // Validates: Requirements 3.9, 3.10
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 9: localStorage persistence round-trip',
+      fc.property(
+        fc.array(
+          fc.record({
+            id: fc.uuidV4(),
+            label: fc.string({ minLength: 1 }),
+            completed: fc.boolean()
+          })
+        ),
+        (tasks) => {
+          TodoList.reset();
+          TodoList._tasks = tasks.map(t => ({ ...t }));
+          TodoList.save();
+          const stored = Storage.get('pd_tasks');
+          if (!Array.isArray(stored) || stored.length !== tasks.length) return false;
+          return tasks.every((t, i) =>
+            stored[i].id === t.id &&
+            stored[i].label === t.label &&
+            stored[i].completed === t.completed
+          );
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 10 — Link addition round-trip
+    // Feature: personal-dashboard, Property 10: Link addition round-trip
+    // Validates: Requirements 4.1, 4.5
+    // ════════════════════════════════════════════════════════════════════════
+    const VALID_URLS = [
+      'https://example.com',
+      'https://www.google.com',
+      'https://github.com',
+      'http://localhost:3000',
+      'https://news.ycombinator.com',
+      'https://developer.mozilla.org',
+      'https://stackoverflow.com',
+      'https://en.wikipedia.org/wiki/Main_Page'
+    ];
+
+    await runProperty(
+      'Property 10: Link addition round-trip',
+      fc.property(
+        fc.string({ minLength: 1 }).filter(s => s.trim().length > 0),
+        fc.constantFrom(...VALID_URLS),
+        (label, url) => {
+          QuickLinks.reset();
+          const before = QuickLinks._links.length;
+          QuickLinks.add(label, url);
+          const after = QuickLinks._links.length;
+          const stored = Storage.get('pd_links');
+          const inStorage = Array.isArray(stored) &&
+            stored.some(l => l.label === label.trim() && l.url === url);
+          return after === before + 1 && inStorage;
+        }
+      )
+    );
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Property 11 — Empty label or URL rejection
+    // Feature: personal-dashboard, Property 11: Empty label or URL rejection
+    // Validates: Requirements 4.2
+    // ════════════════════════════════════════════════════════════════════════
+    await runProperty(
+      'Property 11: Empty label or URL rejection',
+      fc.property(
+        fc.oneof(
+          // empty label, valid url
+          fc.record({
+            label: fc.constant(''),
+            url: fc.constantFrom(...VALID_URLS)
+          }),
+          // non-empty label, empty url
+          fc.record({
+            label: fc.string({ minLength: 1 }).filter(s => s.trim().length > 0),
+            url: fc.constant('')
+          }),
+          // both empty
+          fc.record({
+            label: fc.constant(''),
+            url: fc.constant('')
+          })
+        ),
+        ({ label, url }) => {
+          QuickLinks.reset();
+          const before = QuickLinks._links.length;
+          QuickLinks.add(label, url);
+          return QuickLinks._links.length === before;
+        }
+      )
+    );
+
+    // ── Summary ──────────────────────────────────────────────────────────────
+    const summary = document.getElementById('summary');
+    const total = passed + failed;
+    summary.textContent = `${passed}/${total} properties passed`;
+    summary.style.color = failed === 0 ? '#6f6' : '#f66';
+    console.log(`\n=== ${passed}/${total} properties passed ===`);
+  </script>
+</body>
+</html>
