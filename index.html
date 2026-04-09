@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="dashboard-header">
+    <h1>Dashboard</h1>
+    <button id="theme-toggle" aria-label="Toggle light/dark theme">🌙 Toggle Theme</button>
+  </header>
+
+  <main class="dashboard-grid">
+
+    <!-- Greeting Widget -->
+    <section class="widget" id="widget-greeting" aria-label="Greeting">
+      <h2>Welcome</h2>
+      <p id="greeting-time" class="time-display" aria-live="polite"></p>
+      <p id="greeting-date" class="date-display"></p>
+      <p id="greeting-message" class="greeting-message" aria-live="polite"></p>
+      <div class="name-controls">
+        <label for="name-input">Your name:</label>
+        <input type="text" id="name-input" placeholder="Enter your name" maxlength="50" />
+        <button id="name-save-btn">Save</button>
+      </div>
+    </section>
+
+    <!-- Focus Timer Widget -->
+    <section class="widget" id="widget-timer" aria-label="Focus Timer">
+      <h2>Focus Timer</h2>
+      <p id="timer-display" class="timer-display" aria-live="polite">25:00</p>
+      <div class="timer-controls">
+        <button id="timer-start-btn">▶ Start</button>
+        <button id="timer-stop-btn">⏸ Stop</button>
+        <button id="timer-reset-btn">↺ Reset</button>
+      </div>
+      <div class="duration-controls">
+        <label for="timer-duration-input">Duration (min):</label>
+        <input type="number" id="timer-duration-input" min="1" max="99" placeholder="25" />
+        <button id="timer-duration-save-btn">Set</button>
+        <span id="timer-duration-error" class="error-msg" role="alert"></span>
+      </div>
+    </section>
+
+    <!-- To-Do List Widget -->
+    <section class="widget" id="widget-todo" aria-label="To-Do List">
+      <h2>To-Do List</h2>
+      <div class="task-input-row">
+        <input type="text" id="task-input" placeholder="New task..." maxlength="200" />
+        <button id="add-task-btn">Add</button>
+      </div>
+      <span id="task-error" class="error-msg" role="alert"></span>
+      <ul id="task-list" aria-label="Tasks"></ul>
+    </section>
+
+    <!-- Quick Links Widget -->
+    <section class="widget" id="widget-links" aria-label="Quick Links">
+      <h2>Quick Links</h2>
+      <div id="links-list" class="links-list" aria-label="Saved links"></div>
+      <div class="link-input-row">
+        <input type="text" id="link-label-input" placeholder="Label" maxlength="50" />
+        <input type="text" id="link-url-input" placeholder="https://..." maxlength="500" />
+        <button id="add-link-btn">Add</button>
+      </div>
+      <span id="link-error" class="error-msg" role="alert"></span>
+    </section>
+
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
